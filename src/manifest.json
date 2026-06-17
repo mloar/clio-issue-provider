@@ -1,0 +1,24 @@
+{
+  "id": "clio-issue-provider",
+  "name": "Clio Tasks",
+  "version": "1.0.0",
+  "manifestVersion": 1,
+  "minSupVersion": "13.0.0",
+  "description": "Clio issue provider plugin",
+  "author": "Matt Loar",
+  "type": "issueProvider",
+  "icon": "icon.svg",
+  "iFrame": false,
+  "permissions": [],
+  "hooks": [],
+  "issueProvider": {
+    "pollIntervalMs": 600000,
+    "icon": "clio",
+    "humanReadableName": "Clio",
+    "defaultAutoAddToBacklog": true,
+    "issueStrings": {
+      "singular": "Task",
+      "plural": "Tasks"
+    }
+  }
+}
