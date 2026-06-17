@@ -1,14 +1,20 @@
+import { id as pluginId } from "./manifest.json";
+
 import type {
+  Hooks,
   IssueProviderPluginDefinition,
   OAuthFlowConfig,
   OAuthTokenResult,
   PluginFieldMapping,
+  PluginHookHandler,
   PluginHttp,
   PluginIssue,
   PluginSearchResult,
+  Task,
 } from '@super-productivity/plugin-api';
 
 declare const PluginAPI: {
+  registerHook<T extends Hooks>(hook: T, fn: PluginHookHandler<T>): void;
   registerIssueProvider(definition: IssueProviderPluginDefinition): void;
   startOAuthFlow(config: OAuthFlowConfig): Promise<OAuthTokenResult>;
   getOAuthToken(): Promise<string | null>;
@@ -16,6 +22,7 @@ declare const PluginAPI: {
 };
 
 const API_BASE = 'https://app.clio.com/api/v4';
+const FIELDS = 'id,name,status,description,due_at,time_estimated,assignee,matter';
 const CLIO_AUTH_URL = 'https://app.clio.com/oauth/authorize';
 const CLIO_TOKEN_URL = 'https://app.clio.com/oauth/token';
 const CLIENT_ID = 'jaty2F0w3l5V0u8dOtig147sysfW8j8GQsRjmLOd';
@@ -63,6 +70,41 @@ const isAuthOrNotFoundError = (err: unknown): boolean => {
   return false;
 };
 
+PluginAPI.registerHook("taskComplete", async ({taskId, task}: {string, Task}) => {
+  if (task.issueType === 'plugin:' + pluginId) {
+    for (const t of Object.entries(task.timeSpentOnDay)) {
+      const token = await PluginAPI.getOAuthToken();
+      const response = await (await fetch(`${API_BASE}/tasks/${task.issueId}.json?fields=matter`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        }
+      })).json();
+
+      const data = { data: {
+        date: t[0],
+        quantity: t[1] / 1000,
+        matter: {
+          id: response.data.matter.id
+        },
+        task: {
+          id: Number.parseInt(task.issueId)
+        },
+        type: 'TimeEntry',
+      }};
+
+
+      await fetch(`${API_BASE}/activities.json`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+    }
+  }
+});
+
 PluginAPI.registerIssueProvider({
   configFields: [
     {
@@ -95,7 +137,7 @@ PluginAPI.registerIssueProvider({
     config: Record<string, unknown>,
     http: PluginHttp,
   ): Promise<PluginSearchResult[]> {
-    const url = `${API_BASE}/tasks.json?complete=false&fields=id,name,status,description,due_at,time_estimated&query=${searchTerm}`;
+    const url = `${API_BASE}/tasks.json?complete=false&fields=${FIELDS}&query=${searchTerm}`;
     const response = await http.get<ClioSearchResponse>(url);
     return (response.data || []).map(mapSearchResult);
   },
@@ -104,7 +146,7 @@ PluginAPI.registerIssueProvider({
     config: Record<string, unknown>,
     http: PluginHttp,
   ): Promise<PluginSearchResult[]> {
-    const url = `${API_BASE}/tasks.json?complete=false&fields=id,name,status,description,due_at,time_estimated`;
+    const url = `${API_BASE}/tasks.json?complete=false&fields=${FIELDS}`;
     const response = await http.get<ClioSearchResponse>(url);
     return (response.data || []).map(mapSearchResult);
   },
@@ -114,7 +156,7 @@ PluginAPI.registerIssueProvider({
     config: Record<string, unknown>,
     http: PluginHttp,
   ): Promise<PluginIssue> {
-    const issueUrl = `${API_BASE}/tasks/${issueId}.json?fields=id,name,status,description,due_at,time_estimated,assignee`;
+    const issueUrl = `${API_BASE}/tasks/${issueId}.json?fields=${FIELDS}`;
     const issue = (await http.get<ClioTaskResponse>(issueUrl)).data;
 
     return {
@@ -168,7 +210,7 @@ PluginAPI.registerIssueProvider({
         taskValue: unknown,
         _ctx: { issueId: string; issueNumber?: number },
       ): number => {
-        return Number.parse(taskValue);
+        return Number.parseInt(taskValue);
       },
       toTaskValue: (
         issueValue: unknown,

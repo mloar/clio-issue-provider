@@ -10,7 +10,9 @@
   "icon": "icon.svg",
   "iFrame": false,
   "permissions": [],
-  "hooks": [],
+  "hooks": [
+    "taskComplete"
+  ],
   "issueProvider": {
     "pollIntervalMs": 600000,
     "icon": "clio",
