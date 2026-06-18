@@ -22,7 +22,7 @@ declare const PluginAPI: {
 };
 
 const API_BASE = 'https://app.clio.com/api/v4';
-const FIELDS = 'id,name,status,description,due_at,time_estimated,assignee,matter';
+const FIELDS = 'id,name,status,description,due_at,time_estimated,matter';
 const CLIO_AUTH_URL = 'https://app.clio.com/oauth/authorize';
 const CLIO_TOKEN_URL = 'https://app.clio.com/oauth/token';
 const CLIENT_ID = 'jaty2F0w3l5V0u8dOtig147sysfW8j8GQsRjmLOd';
@@ -32,6 +32,10 @@ const CLIENT_ID = 'jaty2F0w3l5V0u8dOtig147sysfW8j8GQsRjmLOd';
 // redirect URI restrictions are the actual security mechanisms.
 // Do not rotate or revoke — this value is intentionally committed.
 const CLIENT_SECRET = '4r75hieBXW9dAVjsLfnw6nK3OFzgXY92YJnHrFu8';
+
+interface ClioConfig {
+  userId?: number;
+}
 
 interface ClioTask {
   id: number;
@@ -92,7 +96,6 @@ PluginAPI.registerHook("taskComplete", async ({taskId, task}: {string, Task}) =>
         type: 'TimeEntry',
       }};
 
-
       await fetch(`${API_BASE}/activities.json`, {
         method: 'POST',
         headers: {
@@ -129,6 +132,7 @@ PluginAPI.registerIssueProvider({
     if (!token) {
       throw new Error('Not authenticated. Please connect your Clio account first.');
     }
+
     return { Authorization: `Bearer ${token}` };
   },
 
@@ -137,7 +141,12 @@ PluginAPI.registerIssueProvider({
     config: Record<string, unknown>,
     http: PluginHttp,
   ): Promise<PluginSearchResult[]> {
-    const url = `${API_BASE}/tasks.json?complete=false&fields=${FIELDS}&query=${searchTerm}`;
+    const cfg = config as ClioConfig;
+    if (!cfg.userId) {
+      cfg.userId = (await http.get(`${API_BASE}/users/who_am_i`)).data.id;
+    }
+
+    const url = `${API_BASE}/tasks.json?complete=false&assignee_id=${cfg.userId}&assignee_type=user&fields=${FIELDS}&query=${searchTerm}`;
     const response = await http.get<ClioSearchResponse>(url);
     return (response.data || []).map(mapSearchResult);
   },
@@ -146,7 +155,12 @@ PluginAPI.registerIssueProvider({
     config: Record<string, unknown>,
     http: PluginHttp,
   ): Promise<PluginSearchResult[]> {
-    const url = `${API_BASE}/tasks.json?complete=false&fields=${FIELDS}`;
+    const cfg = config as ClioConfig;
+    if (!cfg.userId) {
+      cfg.userId = (await http.get(`${API_BASE}/users/who_am_i`)).data.id;
+    }
+
+    const url = `${API_BASE}/tasks.json?complete=false&assignee_id=${cfg.userId}&assignee_type=user&fields=${FIELDS}`;
     const response = await http.get<ClioSearchResponse>(url);
     return (response.data || []).map(mapSearchResult);
   },
@@ -161,7 +175,9 @@ PluginAPI.registerIssueProvider({
 
     return {
       ...issue,
-      timeEstimateFormatted: issue.time_estimated ? String(Math.floor(issue.time_estimated / 3600)) + "h " + String(issue.time_estimated % 3600) + "m" : undefined,
+      timeEstimateFormatted: issue.time_estimated
+      ? String(Math.floor(issue.time_estimated / 3600)) + "h " + String(issue.time_estimated % 3600) + "m"
+      : undefined,
     };
 
     return result;
@@ -287,14 +303,18 @@ PluginAPI.registerIssueProvider({
     config: Record<string, unknown>,
     http: PluginHttp,
   ): Promise<{ issueId: string; issueNumber: number; issueData: PluginIssue }> {
+    const cfg = config as ClioConfig;
+    if (!cfg.userId) {
+      cfg.userId = (await http.get(`${API_BASE}/users/who_am_i`)).data.id;
+    }
+
     let response: ClioTaskResponse;
     try {
-      const user = (await http.get(`${API_BASE}/who_am_i`)).data.id;
       response = await http.post<ClioTaskResponse>(
         `${API_BASE}/tasks.json`,
         { data: {
           assignee: {
-            id: user,
+            id: cfg.userId,
             type: "User"
           },
           name: title,
