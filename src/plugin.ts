@@ -77,6 +77,9 @@ const isAuthOrNotFoundError = (err: unknown): boolean => {
 PluginAPI.registerHook("taskComplete", async ({taskId, task}: {string, Task}) => {
   if (task.issueType === 'plugin:' + pluginId) {
     for (const t of Object.entries(task.timeSpentOnDay)) {
+      if (!(t[1] > 0)) {
+        continue;
+      }
       const token = await PluginAPI.getOAuthToken();
       const response = await (await fetch(`${API_BASE}/tasks/${task.issueId}.json?fields=matter`, {
         headers: {
@@ -90,6 +93,7 @@ PluginAPI.registerHook("taskComplete", async ({taskId, task}: {string, Task}) =>
         matter: {
           id: response.data.matter.id
         },
+        note: task.title,
         task: {
           id: Number.parseInt(task.issueId)
         },
