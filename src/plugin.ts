@@ -43,6 +43,10 @@ interface ClioTask {
   description: string;
   status: string;
   due_at: string;
+  matter: {
+    id: number;
+    display_number: string;
+  };
   time_estimated?: number;
 }
 
@@ -209,6 +213,7 @@ PluginAPI.registerIssueProvider({
   issueDisplay: [
     { field: 'name', label: 'Title', type: 'text' },
     { field: 'status', label: 'Status', type: 'text' },
+    { field: 'matter.display_number', label: 'Matter', type: 'text' },
     { field: 'description', label: 'Description', type: 'text' },
     { field: 'due_at', label: 'Due Date', type: 'text' },
     { field: 'timeEstimateFormatted', label: 'Time Estimate', type: 'text' },
