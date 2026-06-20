@@ -307,47 +307,6 @@ PluginAPI.registerIssueProvider({
     }
   },
 
-  async createIssue(
-    title: string,
-    config: Record<string, unknown>,
-    http: PluginHttp,
-  ): Promise<{ issueId: string; issueNumber: number; issueData: PluginIssue }> {
-    const cfg = config as ClioConfig;
-    if (!cfg.userId) {
-      cfg.userId = (await http.get(`${API_BASE}/users/who_am_i`)).data.id;
-    }
-
-    let response: ClioTaskResponse;
-    try {
-      response = await http.post<ClioTaskResponse>(
-        `${API_BASE}/tasks.json`,
-        { data: {
-          assignee: {
-            id: cfg.userId,
-            type: "User"
-          },
-          name: title,
-          description: title,
-        }
-        },
-      );
-    } catch (e) {
-      throw isAuthOrNotFoundError(e)
-        ? new Error("Insufficient permissions")
-        : e;
-    }
-    return {
-      issueId: String(response.id),
-      issueData: {
-        id: String(response.id),
-        title: response.name,
-        description: response.description || '',
-        state: response.status || 'confirmed',
-        status: response.status,
-      },
-    };
-  },
-
   extractSyncValues(issue: PluginIssue): Record<string, unknown> {
     return issue;
   },
