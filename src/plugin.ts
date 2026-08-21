@@ -5,24 +5,28 @@ import type {
   IssueProviderPluginDefinition,
   OAuthFlowConfig,
   OAuthTokenResult,
+  PluginAppState,
   PluginFieldMapping,
   PluginHookHandler,
   PluginHttp,
   PluginIssue,
   PluginSearchResult,
   Task,
+  TaskCreatedPayload,
+  TaskUpdatePayload,
 } from '@super-productivity/plugin-api';
 
 declare const PluginAPI: {
   registerHook<T extends Hooks>(hook: T, fn: PluginHookHandler<T>): void;
   registerIssueProvider(definition: IssueProviderPluginDefinition): void;
   startOAuthFlow(config: OAuthFlowConfig): Promise<OAuthTokenResult>;
+  getAppState(): Promise<PluginAppState>;
   getOAuthToken(): Promise<string | null>;
-  clearOAuthToken(): Promise<void>;
+  updateTask(taskId: string, updates: Partial<Task>): Promise<void>;
 };
 
 const API_BASE = 'https://app.clio.com/api/v4';
-const FIELDS = 'id,name,status,description,due_at,time_estimated,matter';
+const FIELDS = 'id,name,status,description,due_at,time_estimated,matter,created_at,updated_at';
 const CLIO_AUTH_URL = 'https://app.clio.com/oauth/authorize';
 const CLIO_TOKEN_URL = 'https://app.clio.com/oauth/token';
 const CLIENT_ID = 'jaty2F0w3l5V0u8dOtig147sysfW8j8GQsRjmLOd';
@@ -68,6 +72,14 @@ const mapSearchResult = (issue: ClioTask) : PluginSearchResult => ({
   ...issue,
   id: String(issue.id),
   title: issue.name,
+  lastUpdated: new Date(issue.updated_at).getTime(),
+  createdAt: new Date(issue.created_at).getTime(),
+  due_at: issue.due_at ?? "",
+  description: issue.description ?? "",
+  labels: issue.matter?.display_number ? [issue.matter.display_number] : [],
+  timeEstimateFormatted: issue.time_estimated
+  ? String(Math.floor(issue.time_estimated / 3600)) + "h " + String(issue.time_estimated % 3600) + "m"
+  : undefined,
 });
 
 const isAuthOrNotFoundError = (err: unknown): boolean => {
@@ -116,6 +128,26 @@ PluginAPI.registerHook("taskComplete", async ({taskId, task}: {string, Task}) =>
   }
 });
 
+function setDeadlineDay(payload: TaskCreatedPayload | TaskUpdatedPayload) {
+  const {taskId, task} = payload as TaskCreatedPayload;
+  if (
+    task.issueType === 'plugin:' + pluginId
+    && task.issueLastSyncedValues?.due_at
+    && task.deadlineDay != task.issueLastSyncedValues.due_at) {
+    PluginAPI.log.debug("Updating task with deadline", taskId, task.issueLastSyncedValues.due_at);
+    PluginAPI.updateTask(taskId, { deadlineDay: task.issueLastSyncedValues.due_at });
+  }
+}
+
+PluginAPI.getAppState().then(appState => {
+  for (const taskId in appState.tasks) {
+    setDeadlineDay({taskId, task: appState.tasks[taskId]});
+  }
+});
+
+PluginAPI.registerHook("taskCreated", setDeadlineDay);
+PluginAPI.registerHook("taskUpdate", setDeadlineDay);
+
 PluginAPI.registerIssueProvider({
   configFields: [
     {
@@ -127,12 +159,10 @@ PluginAPI.registerIssueProvider({
         tokenUrl: CLIO_TOKEN_URL,
         clientId: CLIENT_ID,
         clientSecret: CLIENT_SECRET,
-        mobileClientId: CLIENT_ID,
-        iosClientId: CLIENT_ID,
         scopes: [],
         extraAuthParams: {},
       },
-    },
+    }
   ],
 
   async getHeaders(config: Record<string, unknown>): Record<string, string> {
@@ -181,14 +211,7 @@ PluginAPI.registerIssueProvider({
     const issueUrl = `${API_BASE}/tasks/${issueId}.json?fields=${FIELDS}`;
     const issue = (await http.get<ClioTaskResponse>(issueUrl)).data;
 
-    return {
-      ...issue,
-      timeEstimateFormatted: issue.time_estimated
-      ? String(Math.floor(issue.time_estimated / 3600)) + "h " + String(issue.time_estimated % 3600) + "m"
-      : undefined,
-    };
-
-    return result;
+    return mapSearchResult(issue);
   },
 
   getIssueLink(
@@ -226,23 +249,6 @@ PluginAPI.registerIssueProvider({
       defaultDirection: 'both',
       toIssueValue: (taskValue: unknown): string => (taskValue ? 'complete' : 'pending'),
       toTaskValue: (issueValue: unknown): boolean => (issueValue === 'complete'),
-    },
-    {
-      taskField: 'id',
-      issueField: 'id',
-      defaultDirection: 'both',
-      toIssueValue: (
-        taskValue: unknown,
-        _ctx: { issueId: string; issueNumber?: number },
-      ): number => {
-        return Number.parseInt(taskValue);
-      },
-      toTaskValue: (
-        issueValue: unknown,
-        _ctx: { issueId: string; issueNumber?: number },
-      ): string => {
-        return String(issueValue)
-      },
     },
     {
       taskField: 'title',
@@ -286,11 +292,41 @@ PluginAPI.registerIssueProvider({
       issueField: 'due_at',
       defaultDirection: 'both',
       mutuallyExclusive: ['dueWithTime'],
-      toIssueValue: (taskValue: unknown): string | null => (taskValue as string) || null,
+      toIssueValue: (taskValue: unknown): string => (new Date(taskValue as string)).toISOString().substring(0, 10),
       toTaskValue: (issueValue: unknown): string | undefined =>
         (issueValue as string) || undefined,
     },
+    {
+      taskField: 'tagIds',
+      issueField: 'labels',
+      defaultDirection: 'pullOnly',
+      toIssueValue: (taskValue: unknown): string[] => (taskValue as string[]),
+      toTaskValue: (issueValue: unknown): string[] => (issueValue as string[]),
+    },
   ] satisfies PluginFieldMapping[],
+
+  async createIssue(
+    title: string,
+    config: Record<string, unknown>,
+    http: PluginHttp,
+  ): Promise<{ issueId: string, issueNumber?: number, issueData: PluginIssue }>
+  {
+    const cfg = config as ClioConfig;
+    try {
+      const issue = (await http.post(
+        `${API_BASE}/tasks.json?fields=${FIELDS}`,
+        {data: {assignee: {id: cfg.userId, type: "User"}, description: "", name: title}}
+      )).data;
+      return {
+        issueId: String(issue.id),
+        issueData: mapSearchResult(issue),
+      };
+    } catch (e) {
+      throw isAuthOrNotFoundError(e)
+        ? new Error("Insufficient permissions")
+        : e;
+    }
+  },
 
   async updateIssue(
     id: string,
@@ -299,7 +335,7 @@ PluginAPI.registerIssueProvider({
     http: PluginHttp,
   ): Promise<void> {
     try {
-      await http.patch(`${API_BASE}/tasks/${id}.json`, {data: changes});
+      await http.patch(`${API_BASE}/tasks/${id}.json?fields=${FIELDS}`, {data: changes});
     } catch (e) {
       throw isAuthOrNotFoundError(e)
         ? new Error("Insufficient permissions")
@@ -307,7 +343,17 @@ PluginAPI.registerIssueProvider({
     }
   },
 
-  extractSyncValues(issue: PluginIssue): Record<string, unknown> {
-    return issue;
+  async deleteIssue(
+    id: string,
+    config: Record<string, unknown>,
+    http: PluginHttp,
+  ): Promise<void> {
+    try {
+      await http.delete(`${API_BASE}/tasks/${id}.json`);
+    } catch (e) {
+      throw isAuthOrNotFoundError(e)
+        ? new Error("Insufficient permissions")
+        : e;
+    }
   },
 });

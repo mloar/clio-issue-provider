@@ -11,7 +11,7 @@ async function deployPlugin() {
   console.log('Deploying clio-issue-provider...');
 
   if (fs.existsSync(DIST_DIR)) {
-    child_process.execSync(`zip -r ../clio-issue-provider.zip *`, {
+    child_process.execSync(`zip -rFS ../clio-issue-provider.zip *`, {
       cwd: DIST_DIR
     });
   }
