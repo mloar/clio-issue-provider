@@ -290,7 +290,7 @@ PluginAPI.registerIssueProvider({
     {
       taskField: 'dueDay',
       issueField: 'due_at',
-      defaultDirection: 'both',
+      defaultDirection: 'pullOnly',
       mutuallyExclusive: ['dueWithTime'],
       toIssueValue: (taskValue: unknown): string => (new Date(taskValue as string)).toISOString().substring(0, 10),
       toTaskValue: (issueValue: unknown): string | undefined =>

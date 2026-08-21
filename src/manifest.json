@@ -1,7 +1,7 @@
 {
   "id": "clio-issue-provider",
   "name": "Clio Tasks",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "manifestVersion": 1,
   "minSupVersion": "13.0.0",
   "description": "Clio issue provider plugin",
