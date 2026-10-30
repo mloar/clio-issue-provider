@@ -1,6 +1,6 @@
 {
   "name": "clio-issue-provider",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "description": "Clio issue provider plugin",
   "scripts": {
     "build": "node scripts/build.js",
